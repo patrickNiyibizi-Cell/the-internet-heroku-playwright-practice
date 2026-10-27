@@ -1,0 +1,303 @@
+ ▐▛███▛█   Claude Code v2.1.310
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~\Downloads\playwright-tests\playwright-tests
+
+  Get to finished work sooner with Opus 5.5. Switch anytime with /model.
+  1 more notice hidden
+
+❯ why all test pass in headless but some of them fail in headed?                
+
+● I'll look at the project to find the specific causes.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Let me see which tests failed in the latest run.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The last run's results are empty, so I'll look at the tests for patterns that
+  usually behave differently in headed mode.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● I couldn't see which tests failed: test-results/ is empty and there's no git
+  history to check. But the tests that use hover, focus, keyboard or fixed waits
+  are the ones that usually pass headless and fail headed, for these reasons.
+
+  Why headed behaves differently
+
+  1. Your real mouse and the OS window get in the way.
+  In headed mode each test opens a real window on your desktop. If your cursor
+  is over one of those windows, or a window opens under it, Windows sends real
+  mouse events. Those cancel Playwright's simulated hover. Tests at risk:
+  - additional-scenarios-2.spec.ts:16-27: the jQuery UI menu uses nested
+    .hover() calls, and the submenu closes when the mouse "leaves".
+  - interactions.spec.ts:42-54: the Hovers test.
+  - tables-status-misc.spec.ts:180-181: Exit Intent. Calling mouse.move(0, -100)
+    to leave the page works headless, but in a real window the mouseleave event
+    often doesn't fire the same way.
+
+  2. Focus.
+  Headless, every page acts as if it has focus. Headed, only one window on your
+  desktop really has OS focus, and with fullyParallel: true you have several
+  open at once. This affects:
+  - Control+A in TinyMCE (additional-scenarios-2.spec.ts:134)
+  - blur() followed by keyboard.press('Enter') (interactions.spec.ts:153)
+  - the right-click context menu (interactions.spec.ts:123)
+
+  3. Timing.
+  Headed browsers are slower because they actually draw the page. Your config
+  also uses the default worker count (about half your CPU cores) across 3
+  browsers, so many real windows compete for CPU. Fixed waits like
+  waitForTimeout(2000) for TinyMCE, infinite scroll and geolocation
+  (additional-scenarios-2.spec.ts:77,107,123, advanced.spec.ts:41,51,112) are
+  then sometimes too short, especially against the slow herokuapp site.
+
+  4. Windows display scaling.
+  If your display is set to 125% or 150%, a real window can map coordinates
+  slightly differently. This can break dragTo and hover.
+
+  How to confirm and fix
+
+  1. Run headed with one worker, and don't touch the mouse while it runs:
+  npx playwright test --headed --workers=1 --project=chromium
+     If most failures go away, the cause is CPU load or focus.
+  2. Replace waitForTimeout(...) with assertions that wait for something
+     specific, e.g. await expect(iframe.locator('body#tinymce')).toBeVisible()
+     or await expect(locator).toHaveCount(n).
+  3. For Exit Intent, dispatch the event yourself instead of relying on real
+     mouse movement:
+  await page.dispatchEvent('html', 'mouseleave', { clientY: -10 });
+  4. For hover menus, check that each submenu is visible before moving to the
+     next level. Your tests already do this.
+
+  Unrelated, but it will fail in both modes on Windows:
+  additional-scenarios-1.spec.ts:63 saves the download to /tmp. Use os.tmpdir()
+  or testInfo.outputPath() instead.
+
+  If you paste the names of the failing tests, or run headed once and let me
+  read the report, I can fix those tests directly.
+
+✻ Worked for 46s · done 6:13 PM
+
+❯ yes, run in headed and fix it, After tell me what was the issue and how you   
+  fixed it.                                                                     
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All 9 failures are in Firefox only. Let me read the errors.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The failures look like timeouts from resource-starved headed Firefox rather
+  than actual test bugs. I'll run Firefox alone in headed mode to confirm.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found the issue: on Windows, covered headed Firefox windows get marked
+  "occluded" and stop rendering, so Playwright's click waits forever on the
+  frame—this hits us because several parallel headed windows inevitably overlap.
+  I'll test disabling Firefox's occlusion tracking as a fix.
+
+● Update(playwright.config.ts)
+  ⎿  Added 10 lines, removed 1 line
+      21      },
+      22      {
+      23        name: 'firefox',
+      24 -      use: { ...devices['Desktop Firefox'] },                  
+      24 +      use: {                                                   
+      25 +        ...devices['Desktop Firefox'],                         
+      26 +        launchOptions: {                                       
+      27 +          firefoxUserPrefs: {                                  
+      28 +            // In headed mode on Windows, Firefox stops renderi
+         +ng windows that are covered by                                 
+      29 +            // other windows. Parallel workers overlap each oth
+         +er, so clicks wait forever for a frame.                        
+      30 +            'widget.windows.window_occlusion_tracking.enabled':
+         + false,                                                        
+      31 +          },                                                   
+      32 +        },                                                     
+      33 +      },                                                       
+      34      },
+      35      {
+      36        name: 'webkit',
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The hanging clicks are gone (9 failures down to 3). The remaining 3 time out
+  while closing the browser context, after the test body has already passed. Let
+  me look closer.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● These trivial tests pass but hang during teardown, likely because Firefox's
+  headed screencast stalls while Playwright waits for the video recording to
+  finish. I'll test this theory by running Firefox headed with video disabled
+  using a temporary config.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● With video off, all 69 Firefox tests pass headed. The fix is to turn video off
+  for Firefox only when running headed, and keep it everywhere else.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Python isn't installed, so that edit didn't apply. That run was the old
+  config, with video still on, and it still shows the teardown hang. Applying
+  the edit properly:
+
+● Update(playwright.config.ts)
+  ⎿  Added 4 lines
+      1  import { defineConfig, devices } from '@playwright/test';
+      2  
+      3 +// Worker processes reload this config without the CLI flags, so
+        + pass "headed" down through an env var                          
+      4 +if (process.argv.includes('--headed')) process.env.PW_HEADED = '
+        +1';                                                             
+      5 +const headed = process.env.PW_HEADED === '1';                   
+      6 +                                                                
+      7  export default defineConfig({
+      8    testDir: './tests',
+      9    fullyParallel: true,
+
+● Update(playwright.config.ts)
+  ⎿  Added 2 lines
+      27        name: 'firefox',
+      28        use: {
+      29          ...devices['Desktop Firefox'],
+      30 +        // Headed Firefox can hang while finishing the video wh
+         +en the context closes                                          
+      31 +        video: headed ? 'off' : 'retain-on-failure',           
+      32          launchOptions: {
+      33            firefoxUserPrefs: {
+      34              // In headed mode on Windows, Firefox stops renderi
+          ng windows that are covered by
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Headed: 207/207. Now checking headless still passes:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The Infinite Scroll test is flaky because it only waits a fixed 2 seconds for
+  content to load instead of confirming it actually loaded. I'll change it to
+  wait until the item count increases.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(tests\advanced.spec.ts)
+  ⎿  Added 17 lines, removed 20 lines
+      31    test('Infinite Scroll - Load More Content', async ({ page }) 
+          => {
+      32      await page.goto('/infinite_scroll');
+      33      
+      34 +    const paragraphs = page.locator('.jscroll-added');         
+      35 +                                                               
+      36 +    // Scroll to bottom (re-scrolling on each poll) until more 
+         +content has loaded                                             
+      37 +    const loadsMoreThan = async (count: number) => {           
+      38 +      await expect.poll(async () => {                          
+      39 +        await page.evaluate(() => window.scrollTo(0, document.b
+         +ody.scrollHeight));                                            
+      40 +        return paragraphs.count();                             
+      41 +      }, { timeout: 15000 }).toBeGreaterThan(count);           
+      42 +      return paragraphs.count();                               
+      43 +    };                                                         
+      44 +                                                               
+      45      // Get initial paragraph count
+      35 -    const initialCount = await page.locator('.jscroll-added').c
+         -ount();                                                        
+      36 -                                                               
+      37 -    // Scroll to bottom                                        
+      38 -    await page.evaluate(() => window.scrollTo(0, document.body.
+         -scrollHeight));                                                
+      39 -                                                               
+      40 -    // Wait for new content to load                            
+      41 -    await page.waitForTimeout(2000);                           
+      42 -                                                               
+      43 -    // Get new paragraph count                                 
+      44 -    const newCount = await page.locator('.jscroll-added').count
+         -();                                                            
+      45 -                                                               
+      46 +    const initialCount = await paragraphs.count();             
+      47 +                                                               
+      48      // Verify more content loaded
+      47 -    expect(newCount).toBeGreaterThan(initialCount);            
+      48 -                                                               
+      49 -    // Scroll again                                            
+      50 -    await page.evaluate(() => window.scrollTo(0, document.body.
+         -scrollHeight));                                                
+      51 -    await page.waitForTimeout(2000);                           
+      52 -                                                               
+      53 -    // Verify even more content loaded                         
+      54 -    const finalCount = await page.locator('.jscroll-added').cou
+         -nt();                                                          
+      55 -    expect(finalCount).toBeGreaterThan(newCount);              
+      49 +    const newCount = await loadsMoreThan(initialCount);        
+      50 +                                                               
+      51 +    // Verify even more content loaded after scrolling again   
+      52 +    await loadsMoreThan(newCount);                             
+      53    });
+      54  });
+      55  
+
+  Ran 1 shell command (ctrl+o to expand)
+● All tests now pass in both modes: 207/207 headed and 207/207 headless.
+
+  What was wrong
+
+  When I ran headed, every failure was in Firefox. Which tests failed changed
+  from run to run, so the test logic wasn't the problem. My earlier guesses
+  about the mouse and focus were wrong; there were two problems with how Firefox
+  runs headed on Windows, plus one test that was flaky in both modes.
+
+  1. Clicks hung forever (most failures).
+  Playwright runs tests in parallel, so several Firefox windows were open on top
+  of each other. Windows tells Firefox when a window is fully covered, and
+  Firefox then stops drawing it to save resources. In Firefox, a Playwright
+  click waits for the next drawn frame, so in a covered window the click never
+  finished and the test timed out at 30s. Headless has no real windows, so
+  nothing gets covered.
+
+  Fix (playwright.config.ts, Firefox project): turn off that Firefox setting.
+  launchOptions: {
+    firefoxUserPrefs: { 'widget.windows.window_occlusion_tracking.enabled':
+  false },
+  },
+  This took the Firefox-only headed run from 9 failures to 3.
+
+  2. "Tearing down context exceeded the test timeout" (the remaining failures).
+  Simple tests like Shadow DOM passed, then hung while the browser closed. Your
+  config records video for every test (video: 'retain-on-failure'), and on close
+  Playwright waits for the video to finish. Headed Firefox's video recording
+  sometimes stalls, so closing never completed. With video off, all 69 Firefox
+  tests passed headed.
+
+  Fix: turn video off only for headed Firefox. Headless and the other browsers
+  still record video.
+  if (process.argv.includes('--headed')) process.env.PW_HEADED = '1';
+  const headed = process.env.PW_HEADED === '1';
+  ...
+  video: headed ? 'off' : 'retain-on-failure',
+  The env var is needed because Playwright's worker processes reload the config
+  without the --headed flag, but they do inherit environment variables.
+
+  3. Infinite Scroll was flaky in both modes.
+  It scrolled down and then waited a fixed 2 seconds for new content from the
+  slow herokuapp site. It failed once headed (Firefox) and once headless
+  (Chromium) during my runs. Fix (tests/advanced.spec.ts): instead of the fixed
+  wait, it keeps scrolling and checking the paragraph count with expect.poll (up
+  to 15s) until the count goes up. It passed 24 repeated runs across headed and
+  headless.
+
+  Limits
+
+  - Headed Firefox no longer records failure videos. Screenshots and traces
+    still work.
+  - Other tests still use fixed waitForTimeout waits (TinyMCE, geolocation).
+    They passed in every run, but they could become flaky on a slower machine or
+    network.
+
+✻ Cooked for 40m 52s · done 6:59 PM
+
+※ recap: You wanted the tests that failed only in headed mode fixed. That's done: all 207 tests now pass both headed and headless. Next, you could review the changes in playwright.config.ts and tests/advanced.spec.ts. (disable recaps in /config)

@@ -1,0 +1,800 @@
+ ▐▛███▛█   Claude Code v2.1.310
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~\Downloads\playwright-tests\playwright-tests
+
+  Opus 5.5 is now your default model and it draws down usage faster than Sonnet 5. Switch anytime with /model.
+  1 more notice hidden
+
+❯ why this app is failing?                                                      
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● There's a previous run's results. Let me look at them.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The failure stems from navigating to /basic_auth without credentials, causing
+  a 401 and ERR_INVALID_AUTH_CREDENTIALS; embedding credentials in the URL isn't
+  reliable either. I'll fix this by using Playwright's httpCredentials option
+  instead.
+
+● Update(tests\auth.spec.ts)
+  ⎿  Added 8 lines, removed 8 lines
+       2  
+       3  test.describe('Authentication Tests', () => {
+       4    
+       5 -  test('Basic Authentication - Valid Credentials', async ({ pag
+         -e }) => {                                                      
+       6 -    // Navigate to basic auth page with credentials in URL     
+       7 -    await page.goto('/basic_auth', {                           
+       8 -      waitUntil: 'networkidle'                                 
+       5 +  test('Basic Authentication - Valid Credentials', async ({ bro
+         +wser }) => {                                                   
+       6 +    // Provide HTTP Basic Auth credentials at the context level
+       7 +    const context = await browser.newContext({                 
+       8 +      httpCredentials: { username: 'admin', password: 'admin' }
+       9      });
+      10 -                                                               
+      11 -    // Set authentication credentials                          
+      12 -    await page.goto('https://admin:admin@the-internet.herokuapp
+         -.com/basic_auth');                                             
+      13 -                                                               
+      10 +    const page = await context.newPage();                      
+      11 +                                                               
+      12 +    await page.goto('/basic_auth');                            
+      13 +                                                               
+      14      // Verify success message
+      15      const successMessage = page.locator('.example p');
+      16      await expect(successMessage).toContainText('Congratulations
+          ! You must have the proper credentials.');
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(tests\auth.spec.ts)
+  ⎿  Added 2 lines
+      14      // Verify success message
+      15      const successMessage = page.locator('.example p');
+      16      await expect(successMessage).toContainText('Congratulations
+          ! You must have the proper credentials.');
+      17 +                                                               
+      18 +    await context.close();                                     
+      19    });
+      20  
+      21    test('Form Authentication - Successful Login', async ({ page 
+          }) => {
+
+● I fixed it: the one failing test was Basic Authentication - Valid Credentials
+  in tests/auth.spec.ts, and it now passes.
+
+  Why it failed:
+
+  page.goto: net::ERR_INVALID_AUTH_CREDENTIALS at 
+  https://the-internet.herokuapp.com/basic_auth
+
+  1. The test's first step opened /basic_auth without a username or password.
+     That page requires HTTP Basic Auth, so the server returned 401 and Chromium
+     aborted the navigation. The test failed right there.
+  2. The next step, which put the credentials in the URL
+     (https://admin:admin@...), never ran. That approach also doesn't work
+     reliably in current browsers, so it wouldn't have fixed things anyway.
+
+  The fix: the test now passes the credentials using Playwright's
+  httpCredentials setting, so the browser answers the login challenge
+  automatically:
+
+  test('Basic Authentication - Valid Credentials', async ({ browser }) => {
+    const context = await browser.newContext({
+      httpCredentials: { username: 'admin', password: 'admin' }
+    });
+    const page = await context.newPage();
+
+    await page.goto('/basic_auth');
+    await expect(page.locator('.example p'))
+      .toContainText('Congratulations! You must have the proper credentials.');
+
+    await context.close();
+  });
+
+  All 12 tests in auth.spec.ts pass on Chromium, Firefox and WebKit. After that
+  run I added a context.close() at the end of the test so the browser context
+  gets cleaned up, and I didn't re-run after that change.
+
+  Your last run stopped at this first failure, so the other 7 test files haven't
+  been checked yet. Run npx playwright test to check the whole suite.
+
+✻ Sautéed for 1m 7s · done 6:25 AM
+
+❯ npx playwright test                                                           
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The full suite finished in 5.6 minutes: 173 passed and 34 failed, across 207
+  runs (each test runs on Chromium, Firefox and WebKit). The auth test I fixed
+  earlier now passes on all three.
+
+  The 34 failures come from 12 tests: 11 fail on all three browsers, and one
+  fails only on WebKit. Going by the error messages, they look like problems in
+  the test code rather than a broken site. Most are wrong selectors or expected
+  text that doesn't match the live page, and a few are timing or input issues.
+
+  Test: JQuery UI - Drag and Drop
+  File: additional-scenarios-2.spec.ts:188
+  What went wrong: Expects the heading "JQueryUI", but the page says "JQuery UI"
+
+  (with a space)
+  ────────────────────────────────────────
+  Test: JavaScript onload event error
+  File: additional-scenarios-1.spec.ts:175
+  What went wrong: Waits for an h3 heading this page doesn't have; it only has a
+
+  paragraph
+  ────────────────────────────────────────
+  Test: Large DOM - Navigate Through Table
+  File: advanced.spec.ts:59
+  What went wrong: table.large-table doesn't exist on the page
+  ────────────────────────────────────────
+  Test: Dynamic Controls - Remove/Add Checkbox
+  File: alerts-dynamic.spec.ts:100
+  What went wrong: #checkbox input[type="checkbox"] isn't found
+  ────────────────────────────────────────
+  Test: Multiple Redirects
+  File: advanced.spec.ts:15
+  What went wrong: #redirect link not found; timed out after 30s
+  ────────────────────────────────────────
+  Test: Dynamic Content ×2
+  File: additional-scenarios-2.spec.ts:143, :165
+  What went wrong: .row .large-10 not found; timed out
+  ────────────────────────────────────────
+  Test: JQuery UI Menus ×2
+  File: additional-scenarios-2.spec.ts:5, :57
+  What went wrong: Submenu stays hidden after hovering; one timed out
+  ────────────────────────────────────────
+  Test: Key Presses
+  File: interactions.spec.ts:119
+  What went wrong: Pressing a key inside the input field doesn't update #result,
+
+  so the result text stays empty
+  ────────────────────────────────────────
+  Test: Secure File Download
+  File: additional-scenarios-1.spec.ts:75
+  What went wrong: Finds 0 download links; probably the same Basic Auth problem
+  as before (no credentials sent)
+  ────────────────────────────────────────
+  Test: Drag and Drop (WebKit only)
+  File: interactions.spec.ts:5
+  What went wrong: The columns don't swap in WebKit
+
+  Screenshots, videos and an error-context.md file for each failure are in
+  test-results\. Run npx playwright show-report to browse them.
+
+  Should I go through and fix these? I'd check each one against the live page so
+  the fixes use the real selectors and text.
+
+✻ Cogitated for 5m 55s · done 6:32 AM
+
+❯ yes use real selectors after show me what you corrected and the replacement   
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Now let me inspect the live pages to get the real DOM.
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● I have the real DOM for every failing page. Applying the fixes now.
+
+● Update(tests\additional-scenarios-1.spec.ts)
+  ⎿  Added 12 lines, removed 5 lines
+      72      }
+      73    });
+      74  
+      75 -  test('Secure File Download - Download with Authentication', a
+         -sync ({ page }) => {                                           
+      76 -    // Note: This requires authentication setup                
+      75 +  test('Secure File Download - Download with Authentication', a
+         +sync ({ browser }) => {                                        
+      76 +    // Page is protected by HTTP Basic Auth                    
+      77 +    const context = await browser.newContext({                 
+      78 +      httpCredentials: { username: 'admin', password: 'admin' }
+      79 +    });                                                        
+      80 +    const page = await context.newPage();                      
+      81      await page.goto('/download_secure');
+      78 -                                                               
+      82 +    await expect(page.locator('h3')).toHaveText('Secure File Do
+         +wnloader');                                                    
+      83 +                                                               
+      84      // Get download links
+      85      const downloadLinks = page.locator('.example a');
+      86 +    await expect(downloadLinks.first()).toBeVisible();         
+      87      const linkCount = await downloadLinks.count();
+      82 -                                                               
+      88 +                                                               
+      89      // Verify files are listed
+      90      expect(linkCount).toBeGreaterThan(0);
+      85 -                                                               
+      91 +                                                               
+      92      console.log(`Secure download files available: ${linkCount}`
+          );
+      93 +    await context.close();                                     
+      94    });
+      95  });
+      96  
+
+● Update(tests\additional-scenarios-1.spec.ts)
+  ⎿  Added 3 lines, removed 2 lines
+      199      // Wait a bit for errors to occur
+      200      await page.waitForTimeout(1000);
+      201      
+      202 -    // Verify page loaded                                     
+      203 -    await expect(page.locator('h3')).toContainText('JavaScript
+          - onload event error');                                        
+      202 +    // Verify page loaded (this page has no heading, only a ti
+          +tle and a paragraph)                                          
+      203 +    await expect(page).toHaveTitle('Page with JavaScript error
+          +s on load');                                                  
+      204 +    await expect(page.locator('p')).toContainText('This page h
+          +as a JavaScript error in the onload event');                  
+      205      
+      206      // Verify we captured error messages
+      207      console.log('Console messages:', consoleMessages);
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Added 15 lines, removed 15 lines
+      13      await expect(menu).toBeVisible();
+      14      
+      15      // Hover over "Enabled" menu item
+      16 -    await page.hover('a:has-text("Enabled")');                 
+      17 -    await page.waitForTimeout(500);                            
+      18 -                                                               
+      16 +    const enabledItem = menu.locator('> li:has(> a:text-is("Ena
+         +bled"))');                                                     
+      17 +    await enabledItem.locator('> a').hover();                  
+      18 +                                                               
+      19      // Verify submenu appears
+      20 -    const submenu = page.locator('ul.ui-menu').nth(1);         
+      20 +    const submenu = enabledItem.locator('> ul');               
+      21      await expect(submenu).toBeVisible();
+      22 -                                                               
+      22 +                                                               
+      23      // Hover over "Downloads" in submenu
+      24 -    await page.hover('a:has-text("Downloads")');               
+      25 -    await page.waitForTimeout(500);                            
+      26 -                                                               
+      24 +    const downloadsItem = submenu.locator('> li:has(> a:text-is
+         +("Downloads"))');                                              
+      25 +    await downloadsItem.locator('> a').hover();                
+      26 +                                                               
+      27      // Verify nested submenu appears
+      28 -    const nestedSubmenu = page.locator('ul.ui-menu').nth(2);   
+      28 +    const nestedSubmenu = downloadsItem.locator('> ul');       
+      29      await expect(nestedSubmenu).toBeVisible();
+      30 -                                                               
+      31 -    // Click on a submenu item                                 
+      32 -    await page.click('a:has-text("PDF")');                     
+      33 -                                                               
+      34 -    // Wait for navigation or action                           
+      35 -    await page.waitForTimeout(1000);                           
+      30 +                                                               
+      31 +    // Click on a submenu item - it downloads a file           
+      32 +    const downloadPromise = page.waitForEvent('download');     
+      33 +    await nestedSubmenu.locator('a:text-is("PDF")').click();   
+      34 +    const download = await downloadPromise;                    
+      35 +    expect(download.suggestedFilename()).toBe('menu.pdf');     
+      36    });
+      37  
+      38    test('JQuery UI Menus - Disabled Menu Item', async ({ page })
+           => {
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Added 7 lines, removed 2 lines
+      56  
+      57    test('JQuery UI Menus - Back to JQuery UI', async ({ page }) 
+          => {
+      58      await page.goto('/jqueryui/menu');
+      59 -                                                               
+      59 +                                                               
+      60 +    // "Back to JQuery UI" lives in the "Enabled" submenu, so o
+         +pen it first                                                   
+      61 +    await page.locator('#menu > li > a:text-is("Enabled")').hov
+         +er();                                                          
+      62 +    const backLink = page.locator('#menu a:text-is("Back to JQu
+         +ery UI")');                                                    
+      63 +    await expect(backLink).toBeVisible();                      
+      64 +                                                               
+      65      // Click "Back to JQuery UI" link
+      61 -    await page.click('a:has-text("Back to JQuery UI")');       
+      66 +    await backLink.click();                                    
+      67      
+      68      // Verify navigation to JQuery UI page
+      69      await expect(page).toHaveURL(/.*jqueryui$/);
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Added 3 lines, removed 3 lines
+      147    
+      148    test('Dynamic Content - Content Changes on Refresh', async (
+           { page }) => {
+      149      await page.goto('/dynamic_content');
+      150 -                                                              
+      151 -    // Get initial content                                    
+      152 -    const rows = page.locator('.row');                        
+      150 +                                                              
+      151 +    // Get initial content (content rows live inside the examp
+          +le's #content block)                                          
+      152 +    const rows = page.locator('.example #content > .row');    
+      153      const firstRowText = await rows.first().locator('.large-10
+           ').textContent();
+      154      
+      155      // Refresh page
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Added 7 lines, removed 7 lines
+      171      await page.goto('/dynamic_content?with_content=static');
+      172      
+      173      // Get content
+      174 -    const rows = page.locator('.row');                        
+      174 +    const rows = page.locator('.example #content > .row');    
+      175      const firstRowText = await rows.first().locator('.large-10
+           ').textContent();
+      176 -                                                              
+      176 +                                                              
+      177      // Refresh page with static parameter
+      178      await page.reload();
+      179 -                                                              
+      179 +                                                              
+      180      // Get new content - should be the same in static mode
+      181      const newFirstRowText = await rows.first().locator('.large
+           -10').textContent();
+      182 -                                                              
+      183 -    // In static mode, content should remain the same         
+      184 -    console.log('Static mode - content should be consistent');
+      185 -                                                              
+      182 +                                                              
+      183 +    // In static mode, the first rows stay the same (only the 
+          +last one changes)                                             
+      184 +    expect(newFirstRowText).toBe(firstRowText);               
+      185 +                                                              
+      186      const rowCount = await rows.count();
+      187      expect(rowCount).toBeGreaterThan(0);
+      188    });
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Added 1 line, removed 1 line
+      194      await page.goto('/jqueryui');
+      195      
+      196      // Verify main page loaded
+      197 -    await expect(page.locator('h3')).toContainText('JQueryUI')
+          -;                                                             
+      197 +    await expect(page.locator('h3')).toHaveText('JQuery UI'); 
+      198      
+      199      // Get all available examples
+      200      const examples = page.locator('.example a');
+
+● Update(tests\advanced.spec.ts)
+  ⎿  Added 9 lines, removed 7 lines
+      13    });
+      14  
+      15    test('Multiple Redirects', async ({ page }) => {
+      16 -    await page.goto('/redirect_link');                         
+      17 -                                                               
+      18 -    // Click the redirect link                                 
+      19 -    await page.click('#redirect');                             
+      20 -                                                               
+      21 -    // Wait for final destination                              
+      22 -    await page.waitForURL('**/status_codes', { timeout: 10000 }
+         -);                                                             
+      16 +    // /redirect_link does not exist (404); /redirect is the se
+         +rver-side 302                                                  
+      17 +    const response = await page.goto('/redirect');             
+      18 +                                                               
+      19 +    // Verify the request was redirected from /redirect        
+      20 +    const redirectedFrom = response?.request().redirectedFrom()
+         +;                                                              
+      21 +    expect(redirectedFrom?.url()).toContain('/redirect');      
+      22 +                                                               
+      23 +    // Verify final destination                                
+      24      await expect(page).toHaveURL(/.*status_codes/);
+      25 +    await expect(page.locator('h3')).toHaveText('Status Codes')
+         +;                                                              
+      26    });
+      27  });
+      28  
+
+● Update(tests\advanced.spec.ts)  ⎿  Added 1 line, removed 1 line
+      65      await expect(page.locator('h3')).toContainText('Large & Dee
+          p DOM');
+      66      
+      67      // Find the table
+      68 -    const table = page.locator('table.large-table');           
+      68 +    const table = page.locator('#large-table');                
+      69      await expect(table).toBeVisible();
+      70      
+      71      // Verify siblings div exists
+
+● Update(tests\alerts-dynamic.spec.ts)
+  ⎿  Added 2 lines, removed 1 line
+      100    test('Dynamic Controls - Remove/Add Checkbox', async ({ page
+            }) => {
+      101      await page.goto('/dynamic_controls');
+      102      
+      103 -    const checkbox = page.locator('#checkbox input[type="check
+          -box"]');                                                      
+      103 +    // The re-added checkbox is <input id="checkbox"> (no wrap
+          +per), so scope to the form                                    
+      104 +    const checkbox = page.locator('#checkbox-example input[typ
+          +e="checkbox"]');                                              
+      105      const removeButton = page.locator('button:has-text("Remove
+           ")');
+      106      const addButton = page.locator('button:has-text("Add")');
+      107      const message = page.locator('#message');
+
+● Update(tests\interactions.spec.ts)
+  ⎿  Added 15 lines, removed 13 lines
+      122      const inputField = page.locator('#target');
+      123      const result = page.locator('#result');
+      124      
+      125 -    // Press Enter                                            
+      126 -    await inputField.press('Enter');                          
+      127 -    await expect(result).toHaveText('You entered: ENTER');    
+      128 -                                                              
+      125 +    // Press letter A in the input                            
+      126 +    await inputField.press('A');                              
+      127 +    await expect(result).toHaveText('You entered: A');        
+      128 +                                                              
+      129      // Press Space
+      130      await inputField.press('Space');
+      131      await expect(result).toHaveText('You entered: SPACE');
+      132 -                                                              
+      133 -    // Press Tab                                              
+      134 -    await inputField.press('Tab');                            
+      135 -    await expect(result).toHaveText('You entered: TAB');      
+      136 -                                                              
+      132 +                                                              
+      133      // Press Escape
+      134      await inputField.press('Escape');
+      135      await expect(result).toHaveText('You entered: ESCAPE');
+      140 -                                                              
+      141 -    // Press letter A                                         
+      142 -    await inputField.press('A');                              
+      143 -    await expect(result).toHaveText('You entered: A');        
+      136 +                                                              
+      137 +    // Press Tab (moves focus out of the input)               
+      138 +    await inputField.press('Tab');                            
+      139 +    await expect(result).toHaveText('You entered: TAB');      
+      140 +                                                              
+      141 +    // Press Enter outside the input - Enter inside it submits
+          + the form and reloads the page.                               
+      142 +    // The page listens for keydown on the whole document.    
+      143 +    await inputField.blur();                                  
+      144 +    await page.keyboard.press('Enter');                       
+      145 +    await expect(result).toHaveText('You entered: ENTER');    
+      146    });
+      147  });
+
+● Running the fixed tests on all three browsers:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Down to 7. A leading > in a chained locator isn't valid in Playwright (it
+  needs :scope >). Let me check the Large DOM error.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● #siblings exists, but it renders with zero height because its children are
+  floated, so Playwright treats it as hidden. Its child sibling-1.1 is the
+  visible element. Applying the remaining fixes:
+
+● Update(tests\advanced.spec.ts)
+  ⎿  Added 3 lines, removed 1 line
+      69      await expect(table).toBeVisible();
+      70      
+      71      // Verify siblings div exists
+      72 +    // #siblings has zero height (floated children), so check i
+         +t's attached and its content is visible                        
+      73      const siblingsDiv = page.locator('#siblings');
+      73 -    await expect(siblingsDiv).toBeVisible();                   
+      74 +    await expect(siblingsDiv).toBeAttached();                  
+      75 +    await expect(siblingsDiv.locator('[id="sibling-1.1"]')).toB
+         +eVisible();                                                    
+      76      
+      77      // Get row count
+      78      const rows = table.locator('tbody tr');
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Error editing file
+
+● Update(tests\interactions.spec.ts)
+  ⎿  Added 1 line, removed 1 line
+      2  
+      3  test.describe('Drag and Drop Tests', () => {
+      4    
+      5 -  test('Drag and Drop - Swap Elements', async ({ page }) => {   
+      5 +  test('Drag and Drop - Swap Elements', async ({ page, browserNa
+        +me }) => {                                                      
+      6      await page.goto('/drag_and_drop');
+      7      
+      8      const columnA = page.locator('#column-a');
+
+● Update(tests\interactions.spec.ts)
+  ⎿  Added 11 lines, removed 1 line
+      13      await expect(columnB).toHaveText('B');
+      14      
+      15      // Drag column A to column B
+      16 -    await columnA.dragTo(columnB);                             
+      16 +    if (browserName === 'webkit') {                            
+      17 +      // WebKit doesn't fire native HTML5 drag events from mous
+         +e actions, so dispatch them directly                           
+      18 +      const dataTransfer = await page.evaluateHandle(() => new 
+         +DataTransfer());                                               
+      19 +      await columnA.dispatchEvent('dragstart', { dataTransfer }
+         +);                                                             
+      20 +      await columnB.dispatchEvent('dragenter', { dataTransfer }
+         +);                                                             
+      21 +      await columnB.dispatchEvent('dragover', { dataTransfer })
+         +;                                                              
+      22 +      await columnB.dispatchEvent('drop', { dataTransfer });   
+      23 +      await columnA.dispatchEvent('dragend', { dataTransfer });
+      24 +    } else {                                                   
+      25 +      await columnA.dragTo(columnB);                           
+      26 +    }                                                          
+      27      
+      28      // Verify elements are swapped
+      29      await expect(columnA).toHaveText('B');
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Large DOM and WebKit drag-and-drop pass now. The menu edit didn't apply
+  because the whitespace didn't match, so I'll re-read that section and fix it.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Playwright's CSS engine doesn't support :has(> …) with a relative selector.
+  I'll switch to sibling selectors (a ~ ul), which match the real markup
+  (<a>Enabled</a><ul>…</ul>):
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● No Python on this machine, so I'll use the Edit tool.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(tests\additional-scenarios-2.spec.ts)
+  ⎿  Added 4 lines, removed 6 lines
+      13      await expect(menu).toBeVisible();
+      14      
+      15      // Hover over "Enabled" menu item
+      16 -    const enabledItem = menu.locator(':scope > li:has(> a:text-
+         -is("Enabled"))');                                              
+      17 -    await enabledItem.locator(':scope > a').hover();           
+      16 +    await page.locator('#menu > li > a:text-is("Enabled")').hov
+         +er();                                                          
+      17  
+      18      // Verify submenu appears
+      20 -    const submenu = enabledItem.locator(':scope > ul');        
+      19 +    const submenu = page.locator('#menu > li > a:text-is("Enabl
+         +ed") ~ ul');                                                   
+      20      await expect(submenu).toBeVisible();
+      21  
+      22      // Hover over "Downloads" in submenu
+      24 -    const downloadsItem = submenu.locator(':scope > li:has(> a:
+         -text-is("Downloads"))');                                       
+      25 -    await downloadsItem.locator(':scope > a').hover();         
+      23 +    await submenu.locator('a:text-is("Downloads")').hover();   
+      24  
+      25      // Verify nested submenu appears
+      28 -    const nestedSubmenu = downloadsItem.locator(':scope > ul');
+      26 +    const nestedSubmenu = submenu.locator('a:text-is("Downloads
+         +") ~ ul');                                                     
+      27      await expect(nestedSubmenu).toBeVisible();
+      28  
+      29      // Click on a submenu item - it downloads a file
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the full suite to confirm nothing else broke:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I fixed all 12 failing tests, checking each one against the live site's HTML.
+  The full suite now passes: 207 of 207 on Chromium, Firefox and WebKit, down
+  from 34 failures.
+
+  Here is each change, with the original code and its replacement.
+
+  1. additional-scenarios-1.spec.ts: Secure File Download
+
+  The page needs HTTP Basic Auth, and the test sent no credentials, so it found
+  0 links.
+  // BEFORE
+  test('...', async ({ page }) => {
+    await page.goto('/download_secure');
+  // AFTER
+  test('...', async ({ browser }) => {
+    const context = await browser.newContext({
+      httpCredentials: { username: 'admin', password: 'admin' }
+    });
+    const page = await context.newPage();
+    await page.goto('/download_secure');
+    await expect(page.locator('h3')).toHaveText('Secure File Downloader');
+    ...
+    await context.close();
+
+  2. additional-scenarios-1.spec.ts: JavaScript onload error
+
+  The page has no <h3>. It only has a <title> and one <p>.
+  // BEFORE
+  await expect(page.locator('h3')).toContainText('JavaScript onload event 
+  error');
+  // AFTER
+  await expect(page).toHaveTitle('Page with JavaScript errors on load');
+  await expect(page.locator('p')).toContainText('This page has a JavaScript 
+  error in the onload event');
+
+  3. additional-scenarios-2.spec.ts: JQuery UI Menus, Navigate
+
+  ul.ui-menu.nth(1) pointed at the hidden "Disabled" submenu, not the "Enabled"
+  one.
+  // BEFORE
+  await page.hover('a:has-text("Enabled")');
+  const submenu = page.locator('ul.ui-menu').nth(1);
+  await page.hover('a:has-text("Downloads")');
+  const nestedSubmenu = page.locator('ul.ui-menu').nth(2);
+  await page.click('a:has-text("PDF")');
+  await page.waitForTimeout(1000);
+  // AFTER
+  await page.locator('#menu > li > a:text-is("Enabled")').hover();
+  const submenu = page.locator('#menu > li > a:text-is("Enabled") ~ ul');
+  await submenu.locator('a:text-is("Downloads")').hover();
+  const nestedSubmenu = submenu.locator('a:text-is("Downloads") ~ ul');
+  const downloadPromise = page.waitForEvent('download');
+  await nestedSubmenu.locator('a:text-is("PDF")').click();
+  expect((await downloadPromise).suggestedFilename()).toBe('menu.pdf');
+
+  4. additional-scenarios-2.spec.ts: Back to JQuery UI
+
+  The link sits inside the "Enabled" submenu, which stays hidden until you hover
+  over "Enabled".
+  // BEFORE
+  await page.click('a:has-text("Back to JQuery UI")');
+  // AFTER
+  await page.locator('#menu > li > a:text-is("Enabled")').hover();
+  const backLink = page.locator('#menu a:text-is("Back to JQuery UI")');
+  await expect(backLink).toBeVisible();
+  await backLink.click();
+
+  5 and 6. additional-scenarios-2.spec.ts: Dynamic Content (both tests)
+
+  .row first matched the page's layout row, which has no .large-10 inside it.
+  // BEFORE
+  const rows = page.locator('.row');
+  // AFTER
+  const rows = page.locator('.example #content > .row');
+  In the static-mode test, I also replaced a console.log with a real check,
+  because in static mode the first row stays the same after a reload:
+  expect(newFirstRowText).toBe(firstRowText);
+
+  7. additional-scenarios-2.spec.ts: JQuery UI page heading
+
+  // BEFORE
+  await expect(page.locator('h3')).toContainText('JQueryUI');
+  // AFTER
+  await expect(page.locator('h3')).toHaveText('JQuery UI');
+
+  8. advanced.spec.ts: Multiple Redirects
+
+  /redirect_link returns 404. The server-side redirect lives at /redirect.
+  // BEFORE
+  await page.goto('/redirect_link');
+  await page.click('#redirect');
+  await page.waitForURL('**/status_codes', { timeout: 10000 });
+  // AFTER
+  const response = await page.goto('/redirect');
+  expect(response?.request().redirectedFrom()?.url()).toContain('/redirect');
+  await expect(page).toHaveURL(/.*status_codes/);
+  await expect(page.locator('h3')).toHaveText('Status Codes');
+
+  9. advanced.spec.ts: Large DOM
+
+  The table has id="large-table", not a class. #siblings exists but has zero
+  height, because its children are floated, so Playwright treats it as hidden.
+  // BEFORE
+  const table = page.locator('table.large-table');
+  await expect(siblingsDiv).toBeVisible();
+  // AFTER
+  const table = page.locator('#large-table');
+  await expect(siblingsDiv).toBeAttached();
+  await expect(siblingsDiv.locator('[id="sibling-1.1"]')).toBeVisible();
+
+  10. alerts-dynamic.spec.ts: Remove/Add Checkbox
+
+  When the checkbox is added back, the page inserts it as <input id="checkbox">
+  with no wrapper, so the old selector no longer matched.
+  // BEFORE
+  page.locator('#checkbox input[type="checkbox"]')
+  // AFTER
+  page.locator('#checkbox-example input[type="checkbox"]')
+
+  11. interactions.spec.ts: Key Presses
+
+  Pressing Enter inside #target submits its form and reloads the page, which
+  clears the result. The page listens for key presses on the whole document, so
+  the test now presses Enter outside the input, and does it last.
+  // BEFORE (first step)
+  await inputField.press('Enter');
+  // AFTER (last step, after A / Space / Escape / Tab)
+  await inputField.blur();
+  await page.keyboard.press('Enter');
+
+  12. interactions.spec.ts: Drag and Drop (WebKit only)
+
+  WebKit doesn't fire HTML5 drag events from simulated mouse actions, so on
+  WebKit the test fires those events directly. Chromium and Firefox still use
+  the real dragTo.
+  // BEFORE
+  await columnA.dragTo(columnB);
+  // AFTER
+  if (browserName === 'webkit') {
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    await columnA.dispatchEvent('dragstart', { dataTransfer });
+    await columnB.dispatchEvent('dragenter', { dataTransfer });
+    await columnB.dispatchEvent('dragover', { dataTransfer });
+    await columnB.dispatchEvent('drop', { dataTransfer });
+    await columnA.dispatchEvent('dragend', { dataTransfer });
+  } else {
+    await columnA.dragTo(columnB);
+  }
+
+  This project isn't a git repository, so there's no diff history. The
+  before/after above is the only record of these changes.
+
+✻ Cogitated for 9m 50s · done 6:46 AM
+
+※ recap: You asked me to get your Playwright suite passing using the live site's real selectors, and it now passes 207 of 207 on all three browsers. The project isn't in git, so next you could run git init and commit to save these fixes. (disable recaps in /config)
+
+❯ npx playwright test --headed                                                  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The headed run had 6 failures, all in Firefox, in tests that passed headless a
+  few minutes ago. Let me look at the errors.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The failures look like timeouts/slow shutdowns rather than selector issues,
+  likely caused by Firefox struggling with multiple visible windows at once.
+  I'll re-run those 6 tests headed in Firefox one at a time to confirm.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The headed run finished with 201 passed and 6 failed. The 6 aren't real bugs:
+  all of them pass when re-run headed in Firefox one at a time.
+
+  The 6 failures, all Firefox: Open New Window, Infinite Scroll, Shadow DOM,
+  Floating Menu, Form Login, Checkboxes.
+
+  None of them failed on a wrong selector or wrong text. The errors were:
+  - 4 timeouts: a click or check took longer than the 30-second limit (Open New
+    Window, Floating Menu, Checkboxes), or content didn't load in time (Infinite
+    Scroll).
+  - 2 slow shutdowns: Firefox took longer than 30 seconds to close the browser
+    (Shadow DOM, Form Login).
+
+  Why: --headed with default settings opens several visible browser windows at
+  the same time, one per parallel worker. Firefox on Windows slows down when it
+  has to draw many visible windows at once, so some steps go past the time
+  limit. The 6 tests all passed headed and headless when they weren't sharing
+  the screen with other windows.
+
+  The [pid=...] console.error: ... EmptyDatabaseError lines in the output are
+  Firefox's own internal logging and can be ignored.
+
+  For headed runs, use fewer windows:
+  npx playwright test --headed --workers=1                      # one window at 
+  a time (slower, most reliable)
+  npx playwright test --headed --project=chromium               # watch one 
+  browser only
+  npx playwright test --headed --project=chromium --workers=2   # a good middle 
+  ground
+
+  If you'd prefer it automatic, I can add a 1-retry setting to
+  playwright.config.ts for local runs (it currently retries only on CI), so
+  occasional timeouts like these get retried instead of failing.
+✻ Sautéed for 6m 22s · done 6:59 AM
